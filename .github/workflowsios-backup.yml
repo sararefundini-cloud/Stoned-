@@ -1,0 +1,38 @@
+name: STONED - iOS Backup Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Download iOS project
+        uses: actions/checkout@v4
+        with:
+          ref: stoned-store-screenshot-upload
+
+      - name: Check Xcode
+        run: xcodebuild -version
+
+      - name: Build iPhone app
+        run: |
+          xcodebuild \
+            -project ios/Stoned.xcodeproj \
+            -scheme Stoned \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Save iPhone app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stoned-iOS
+          path: build/Build/Products/Release-iphonesimulator/Stoned.app
