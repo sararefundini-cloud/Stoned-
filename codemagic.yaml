@@ -195,3 +195,105 @@ workflows:
           end
           RUBY
           fastlane stoned_store_screenshots
+
+  stoned-ios-gameplay-video:
+    name: STONED - gameplay video
+    instance_type: mac_mini_m2
+    max_build_duration: 20
+    environment:
+      xcode: '27.1'
+    scripts:
+      - name: Prepare screenshot-only app
+        script: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("ios/Stoned/App.swift")
+          source = path.read_text()
+          marker = "        configureMenu()\n"
+          assert source.count(marker) == 1
+          path.write_text(source.replace(marker, marker + '''
+                  if ProcessInfo.processInfo.arguments.contains("--store-gameplay") {
+                      DispatchQueue.main.async { [weak self] in self?.startGame() }
+                  }
+          '''))
+          # Install the demo directly in the page's JavaScript world, not a WK user script.
+          html = Path("index.html")
+          page = html.read_text()
+          assert page.count("</body>") == 1
+          demo = r'''<script>
+          (() => {
+            const timer = setInterval(() => {
+              const game = window.STONED;
+              if (!game || typeof game.start !== 'function') return;
+              clearInterval(timer);
+              game.start().catch(console.error);
+              setTimeout(() => {
+                game.narrClear();
+                const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, {code, key: code === 'KeyW' ? 'w' : code, bubbles:true}));
+                const move = (code, ms) => { key('keydown',code); setTimeout(()=>key('keyup',code),ms); };
+                move('KeyW', 1800);
+                setTimeout(()=>move('ArrowRight', 650), 4500);
+                setTimeout(()=>move('ArrowLeft', 650), 8500);
+                setTimeout(()=>move('KeyW', 1200), 12500);
+              }, 4500);
+            }, 250);
+          })();
+          </script>'''
+          # Only enable the page demo for the gameplay launch, via a native document-start flag.
+          source = path.read_text()
+          needle = 'DispatchQueue.main.async { [weak self] in self?.startGame() }'
+          assert source.count(needle) == 1
+          source = source.replace(needle, 'game.configuration.userContentController.addUserScript(WKUserScript(source: "window.__storeDemo = true;", injectionTime: .atDocumentStart, forMainFrameOnly: true))\n                ' + needle)
+          path.write_text(source)
+          demo = demo.replace('(() => {', '(() => { if (!window.__storeDemo) return;', 1)
+          html.write_text(page.replace("</body>", demo + "</body>"))
+          PY
+      - name: Compile simulator app
+        script: |
+          xcodebuild -project ios/Stoned.xcodeproj -scheme Stoned \
+            -configuration Release -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Record actual gameplay
+        script: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/stoned-simulators.json
+          UDID=$(python3 - <<'PY'
+          import json
+
+          with open("/tmp/stoned-simulators.json") as inventory:
+              devices = json.load(inventory)["devices"]
+          for runtime, entries in reversed(sorted(devices.items())):
+              if ".iOS-" not in runtime:
+                  continue
+              for device in entries:
+                  if device["name"] == "iPhone 17 Pro" and device["isAvailable"]:
+                      print(device["udid"])
+                      raise SystemExit(0)
+          raise SystemExit("No available iPhone 17 Pro simulator")
+          PY
+          )
+          echo "Booting iPhone 17 Pro ($UDID)"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100
+          xcrun simctl install "$UDID" build/Build/Products/Release-iphonesimulator/Stoned.app
+          mkdir -p screenshots
+          capture() {
+            local name="$1"
+            xcrun simctl io "$UDID" screenshot "/tmp/$name.png"
+            sips -s format jpeg "/tmp/$name.png" --out "screenshots/$name.jpg"
+          }
+          xcrun simctl launch "$UDID" com.sararefundini.stoned --store-gameplay
+          sleep 6
+          xcrun simctl io "$UDID" recordVideo --codec=h264 screenshots/stoned-gameplay.mp4 &
+          RECORD_PID=$!
+          trap 'kill -INT "$RECORD_PID" 2>/dev/null || true' EXIT
+          sleep 28
+          kill -INT "$RECORD_PID" 2>/dev/null || true
+          wait "$RECORD_PID" || true
+          trap - EXIT
+    artifacts:
+      - screenshots/*.mp4
+
