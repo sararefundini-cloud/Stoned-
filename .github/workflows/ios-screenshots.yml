@@ -36,15 +36,11 @@ jobs:
               if (!game || typeof game.start !== 'function') return;
               clearInterval(timer);
               game.start().catch(console.error);
-              setTimeout(() => {
-                game.narrClear();
-                const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, {code, key: code === 'KeyW' ? 'w' : code, bubbles:true}));
-                const move = (code, ms) => { key('keydown',code); setTimeout(()=>key('keyup',code),ms); };
-                move('KeyW', 1800);
-                setTimeout(()=>move('ArrowRight', 650), 4500);
-                setTimeout(()=>move('ArrowLeft', 650), 8500);
-                setTimeout(()=>move('KeyW', 1200), 12500);
-              }, 4500);
+              const scene = (fn) => { game.narrClear(); fn(); };
+              setTimeout(() => scene(() => { game.enterHall(); game.lookAt(game.hall.table.position.x, 1.3, game.hall.table.position.z); }), 5000);
+              setTimeout(() => scene(() => game.startVision("altar")), 18000);
+              setTimeout(() => scene(() => game.startVision("jordan")), 32000);
+              setTimeout(() => scene(() => game.startVision("house")), 46000);
             }, 250);
           })();
           </script>'''
@@ -93,13 +89,15 @@ jobs:
             xcrun simctl io "$UDID" screenshot "/tmp/$name.png"
             sips -s format jpeg "/tmp/$name.png" --out "screenshots/$name.jpg"
           }
-          xcrun simctl launch "$UDID" com.sararefundini.stoned
-          sleep 5
-          capture stoning-iphone-title
-          xcrun simctl terminate "$UDID" com.sararefundini.stoned
           xcrun simctl launch "$UDID" com.sararefundini.stoned --store-gameplay
           sleep 12
-          capture stoning-iphone-gameplay-opening
+          capture 01-hallway
+          sleep 14
+          capture 02-altar
+          sleep 14
+          capture 03-jordan
+          sleep 14
+          capture 04-house
       - uses: actions/upload-artifact@v4
         with:
           name: Stoned-iPhone-Screenshots
