@@ -60,28 +60,42 @@ workflows:
           source = path.read_text()
           marker = "        configureMenu()\n"
           assert source.count(marker) == 1
-          screenshot_only = r'''
+          path.write_text(source.replace(marker, marker + '''
                   if ProcessInfo.processInfo.arguments.contains("--store-gameplay") {
-                      game.configuration.userContentController.addUserScript(WKUserScript(
-                          source: """
-                          (() => {
-                            const timer = setInterval(() => {
-                              const go = document.getElementById('go');
-                              if (go && /(?:TAP|CLICK) TO ENTER/.test(go.textContent)) {
-                                clearInterval(timer);
-                                go.click();
-                              }
-                            }, 250);
-                            setTimeout(() => clearInterval(timer), 20000);
-                          })();
-                          """,
-                          injectionTime: .atDocumentEnd,
-                          forMainFrameOnly: true
-                      ))
                       DispatchQueue.main.async { [weak self] in self?.startGame() }
                   }
-          '''
-          path.write_text(source.replace(marker, marker + screenshot_only))
+          '''))
+          # Install the demo directly in the page's JavaScript world, not a WK user script.
+          html = Path("index.html")
+          page = html.read_text()
+          assert page.count("</body>") == 1
+          demo = r'''<script>
+          (() => {
+            const timer = setInterval(() => {
+              const game = window.STONED;
+              if (!game || typeof game.start !== 'function') return;
+              clearInterval(timer);
+              game.start().catch(console.error);
+              setTimeout(() => {
+                game.narrClear();
+                const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, {code, key: code === 'KeyW' ? 'w' : code, bubbles:true}));
+                const move = (code, ms) => { key('keydown',code); setTimeout(()=>key('keyup',code),ms); };
+                move('KeyW', 1800);
+                setTimeout(()=>move('ArrowRight', 650), 4500);
+                setTimeout(()=>move('ArrowLeft', 650), 8500);
+                setTimeout(()=>move('KeyW', 1200), 12500);
+              }, 4500);
+            }, 250);
+          })();
+          </script>'''
+          # Only enable the page demo for the gameplay launch, via a native document-start flag.
+          source = path.read_text()
+          needle = 'DispatchQueue.main.async { [weak self] in self?.startGame() }'
+          assert source.count(needle) == 1
+          source = source.replace(needle, 'game.configuration.userContentController.addUserScript(WKUserScript(source: "window.__storeDemo = true;", injectionTime: .atDocumentStart, forMainFrameOnly: true))\n                ' + needle)
+          path.write_text(source)
+          demo = demo.replace('(() => {', '(() => { if (!window.__storeDemo) return;', 1)
+          html.write_text(page.replace("</body>", demo + "</body>"))
           PY
       - name: Compile simulator app
         script: |
@@ -124,6 +138,8 @@ workflows:
           capture stoning-iphone-title
           xcrun simctl terminate "$UDID" com.sararefundini.stoned
           xcrun simctl launch "$UDID" com.sararefundini.stoned --store-gameplay
+          sleep 12
+          capture stoning-iphone-gameplay-opening
           xcrun simctl io "$UDID" recordVideo --codec=h264 screenshots/stoned-gameplay.mp4 &
           RECORD_PID=$!
           trap 'kill -INT "$RECORD_PID" 2>/dev/null || true' EXIT
