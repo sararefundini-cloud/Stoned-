@@ -124,10 +124,17 @@ workflows:
           capture stoning-iphone-title
           xcrun simctl terminate "$UDID" com.sararefundini.stoned
           xcrun simctl launch "$UDID" com.sararefundini.stoned --store-gameplay
-          sleep 12
+          xcrun simctl io "$UDID" recordVideo --codec=h264 screenshots/stoned-gameplay.mp4 &
+          RECORD_PID=$!
+          trap 'kill -INT "$RECORD_PID" 2>/dev/null || true' EXIT
+          sleep 30
+          kill -INT "$RECORD_PID" 2>/dev/null || true
+          wait "$RECORD_PID" || true
+          trap - EXIT
           capture stoning-iphone-gameplay
     artifacts:
       - screenshots/*.jpg
+      - screenshots/*.mp4
 
   stoned-ios-upload-screenshots:
     name: STONED - upload App Store screenshots
