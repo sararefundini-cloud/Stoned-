@@ -1,38 +1,47 @@
 name: STONED - iOS Backup Build
-
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 25
-
+    timeout-minutes: 30
     steps:
-      - name: Download iOS project
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: stoned-store-screenshot-upload
-
       - name: Check Xcode
         run: xcodebuild -version
-
-      - name: Build iPhone app
+      - name: Sign, archive and upload
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
-          xcodebuild \
-            -project ios/Stoned.xcodeproj \
-            -scheme Stoned \
-            -configuration Release \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO build
-
-      - name: Save iPhone app
-        uses: actions/upload-artifact@v4
-        with:
-          name: Stoned-iOS
-          path: build/Build/Products/Release-iphonesimulator/Stoned.app
+          set -euo pipefail
+          umask 077
+          KEY_PATH="$RUNNER_TEMP/AuthKey_$KEY_ID.p8"
+          trap 'rm -f "$KEY_PATH"' EXIT
+          printf '%s\n' "$PRIVATE_KEY" > "$KEY_PATH"
+          xcodebuild -project ios/Stoned.xcodeproj -scheme Stoned \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Stoned.xcarchive" \
+            DEVELOPMENT_TEAM=79LXVZ44AJ CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="$(date +%s)" \
+            -allowProvisioningUpdates -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID" archive
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>method</key><string>app-store-connect</string>
+          <key>destination</key><string>upload</string>
+          <key>signingStyle</key><string>automatic</string>
+          <key>teamID</key><string>79LXVZ44AJ</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Stoned.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
