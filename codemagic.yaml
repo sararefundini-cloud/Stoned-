@@ -128,3 +128,47 @@ workflows:
           capture stoning-iphone-gameplay
     artifacts:
       - screenshots/*.jpg
+
+  stoned-ios-upload-screenshots:
+    name: STONED - upload App Store screenshots
+    instance_type: mac_mini_m2
+    max_build_duration: 15
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      xcode: '27.1'
+    scripts:
+      - name: Upload The Stoning listing screenshots
+        script: |
+          set -euo pipefail
+          export STONED_SCREENSHOTS_DIR="$(mktemp -d)"
+          trap 'rm -rf "$STONED_SCREENSHOTS_DIR"' EXIT
+          mkdir -p "$STONED_SCREENSHOTS_DIR/en-US"
+          cp stoned-store-upload/01-hallway.png "$STONED_SCREENSHOTS_DIR/en-US/"
+          cp stoned-store-upload/02-title.jpg "$STONED_SCREENSHOTS_DIR/en-US/"
+          mkdir -p fastlane
+          cat > fastlane/Fastfile <<'RUBY'
+          lane :stoned_store_screenshots do
+            api_key = app_store_connect_api_key(
+              key_id: ENV.fetch("APP_STORE_CONNECT_KEY_IDENTIFIER"),
+              issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+              key_content: ENV.fetch("APP_STORE_CONNECT_PRIVATE_KEY"),
+              duration: 1200
+            )
+            upload_to_app_store(
+              api_key: api_key,
+              app_identifier: "com.sararefundini.stoned",
+              app_version: "1.0",
+              screenshots_path: ENV.fetch("STONED_SCREENSHOTS_DIR"),
+              skip_app_version_update: true,
+              skip_binary_upload: true,
+              skip_metadata: true,
+              overwrite_screenshots: false,
+              submit_for_review: false,
+              run_precheck_before_submit: false,
+              force: true,
+              screenshot_processing_timeout: 360
+            )
+          end
+          RUBY
+          fastlane stoned_store_screenshots
