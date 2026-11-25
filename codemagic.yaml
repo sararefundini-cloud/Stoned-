@@ -1,0 +1,45 @@
+workflows:
+  stoned-ios-preview:
+    name: STONED - unsigned iPhone simulator build
+    instance_type: mac_mini_m2
+    max_build_duration: 20
+    environment:
+      xcode: latest
+    scripts:
+      - name: Compile unsigned iPhone simulator app
+        script: |
+          xcodebuild -project ios/Stoned.xcodeproj -scheme Stoned \
+            -configuration Release -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+    artifacts:
+      - build/Build/Products/Release-iphonesimulator/Stoned.app
+
+  stoned-ios-testflight:
+    name: STONED - signed TestFlight build
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.sararefundini.stoned
+    scripts:
+      - name: Set unique build number
+        script: |
+          sed -i '' "s/^CURRENT_PROJECT_VERSION = .*/CURRENT_PROJECT_VERSION = ${BUILD_NUMBER:?}/" \
+            ios/Stoned/Stoned.xcconfig
+      - name: Configure distribution signing
+        script: xcode-project use-profiles
+      - name: Archive and export signed app
+        script: xcode-project build-ipa --project ios/Stoned.xcodeproj --scheme Stoned
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: false
+        submit_to_app_store: false
