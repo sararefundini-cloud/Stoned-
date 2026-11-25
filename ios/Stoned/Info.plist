@@ -36,3 +36,19 @@
                     <key>UISceneConfigurationName</key>
                     <string>Game</string>
                     <key>UISceneDelegateClassName</key>
+                    <string>$(PRODUCT_MODULE_NAME).GameSceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>UIStatusBarStyle</key>
+    <string>UIStatusBarStyleLightContent</string>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+</dict>
+</plist>
